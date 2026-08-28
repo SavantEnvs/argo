@@ -1,0 +1,15 @@
+# BuildKit prefers <dockerfile>.dockerignore over the context-root .dockerignore.
+# argo's root .dockerignore EXCLUDES .git (plus *.md / *.yaml / .github / docs /
+# sdks / test/e2e / vendor). But the commit-image grader AND the air-gapped PATCH
+# re-run need the FULL .git history COPYed into /mayhem (mayhem.yml checks out with
+# fetch-depth 0 for exactly this). So we override here: KEEP .git and the harnessed
+# source (pkg/apis/workflow/v1alpha1/progress.go + mayhem/), and only drop the
+# genuinely-heavy trees the mini-module build never reads.
+ui/node_modules
+ui/dist
+dist
+vendor
+site
+docs
+sdks
+test/e2e

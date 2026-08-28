@@ -1,0 +1,57 @@
+// mayhem/harness_progress.go.src — native testing.F harness for argo-workflows'
+// workflow-spec PROGRESS field parser (pkg/apis/workflow/v1alpha1/progress.go:
+// ParseProgress — the "N/M" task-progress value type carried on every node
+// status).
+//
+// WHY a staged mini-module (netnew §6 Go / port-go): the real argo-workflows
+// module pins `go 1.26.5` and its pkg/apis/workflow/v1alpha1 package drags in the
+// FULL Kubernetes api-machinery closure (k8s.io/apimachinery, apiextensions,
+// controller-runtime, etc.) through the shared package. ParseProgress + its
+// helpers (parts/N/M/IsValid/parseInt64/Add/Complete), though, live entirely in
+// progress.go and need nothing but stdlib (fmt + strconv + strings). So
+// mayhem/build.sh copies ONLY pkg/apis/workflow/v1alpha1/progress.go (verbatim)
+// into a fresh, standalone Go module at _mayhem_harness/progress and points
+// go-118-fuzz-build there. That isolates the fuzz + KAT builds from argo's giant
+// dependency graph entirely — the harness module's only non-stdlib dep is the
+// go-118-fuzz-build /testing shim itself.
+//
+// Declared `package v1alpha1` (the copied file's package) so it reaches
+// ParseProgress directly. Byte-in, NO file I/O (netnew §3): the fuzzer's bytes
+// become the parser input; starter seeds are Mayhem's job via the Mayhemfile
+// testsuite: directive.
+package v1alpha1
+
+import "testing"
+
+// FuzzProgressParse drives ParseProgress() with an arbitrary string and exercises
+// every accessor on any value it produces. It must never panic on any input —
+// including malformed "N/M" strings, huge/overflowing integers, and empty input.
+func FuzzProgressParse(f *testing.F) {
+	// Representative progress values across valid / malformed / edge shapes.
+	f.Add("0/1")
+	f.Add("0/0")
+	f.Add("100/100")
+	f.Add("1/0")
+	f.Add("5")
+	f.Add("/0")
+	f.Add("0/")
+	f.Add("")
+	f.Add("999999999999999999/999999999999999999")
+	f.Add("-1/2")
+
+	f.Fuzz(func(t *testing.T, data string) {
+		p, valid := ParseProgress(data)
+		// Accessors must be panic-free regardless of the parse outcome.
+		_ = p.N()
+		_ = p.M()
+		_ = p.IsValid()
+		if valid {
+			// A valid progress must satisfy its own invariant.
+			if !p.IsValid() {
+				t.Fatalf("ParseProgress(%q) reported valid but IsValid() is false", data)
+			}
+			_ = p.Add(ProgressDefault)
+			_ = p.Complete()
+		}
+	})
+}

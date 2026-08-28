@@ -1,0 +1,50 @@
+// mayhem/kat_main.go.src — dynamically-linked known-answer probe for argo-
+// workflows' PROGRESS field parser. `import "C"` (cgo) forces a DYNAMICALLY
+// LINKED binary so the gate's LD_PRELOAD sabotage shim can neuter it; a
+// statically-linked Go test binary would be immune and give a false-green
+// oracle — exactly the trap netnew §4 warns about with `go test` alone.
+//
+// Staged by mayhem/build.sh into _mayhem_harness/progress/kat/main.go, it imports
+// the staged `v1alpha1` package (a verbatim copy of pkg/apis/workflow/v1alpha1/
+// progress.go) and runs ParseProgress()/N()/M()/IsValid()/Add()/Complete() over
+// fixed inputs through the REAL parser, printing the decoded fields in a fixed,
+// greppable format for mayhem/test.sh to assert. Every expected value below is
+// lifted from upstream's own progress_test.go golden cases.
+package main
+
+// #include <stdint.h>
+import "C"
+
+import (
+	"fmt"
+
+	v1alpha1 "github.com/argoproj/argo-workflows/v4/_mayhem_harness/progress"
+)
+
+func b2s(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
+func main() {
+	// "0/1" is the canonical valid progress: N=0, M=1, valid.
+	p, ok := v1alpha1.ParseProgress("0/1")
+	fmt.Printf("KAT_VALID_0_1=%s\n", b2s(ok))
+	fmt.Printf("KAT_N=%d\n", p.N())
+	fmt.Printf("KAT_M=%d\n", p.M())
+
+	// Malformed / edge cases from upstream progress_test.go.
+	_, ok = v1alpha1.ParseProgress("")
+	fmt.Printf("KAT_VALID_EMPTY=%s\n", b2s(ok))
+	_, ok = v1alpha1.ParseProgress("5")
+	fmt.Printf("KAT_VALID_5=%s\n", b2s(ok))
+	fmt.Printf("KAT_VALID_1_0=%s\n", b2s(v1alpha1.Progress("1/0").IsValid()))
+	fmt.Printf("KAT_VALID_0_0=%s\n", b2s(v1alpha1.Progress("0/0").IsValid()))
+
+	// Add: "0/0" + "1/2" => "1/2".
+	fmt.Printf("KAT_ADD=%s\n", string(v1alpha1.Progress("0/0").Add("1/2")))
+	// Complete: "0/100" => "100/100".
+	fmt.Printf("KAT_COMPLETE=%s\n", string(v1alpha1.Progress("0/100").Complete()))
+}
